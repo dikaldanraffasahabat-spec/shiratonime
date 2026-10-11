@@ -1,17 +1,12 @@
-// api/hls.js
 export const config = { runtime: 'edge' };
 
 export default async function handler(req) {
   const { searchParams } = new URL(req.url);
-  const target = searchParams.get('url');
+  const target  = searchParams.get('url');
   const referer = searchParams.get('ref') || '';
 
   if (!target) return new Response('missing url', { status: 400 });
-
-  // Validasi: hanya izinkan http(s)
-  if (!/^https?:\/\//.test(target)) {
-    return new Response('invalid url', { status: 400 });
-  }
+  if (!/^https?:\/\//.test(target)) return new Response('invalid url', { status: 400 });
 
   try {
     const headers = {
@@ -30,7 +25,6 @@ export default async function handler(req) {
       || contentType.includes('application/vnd.apple.mpegurl')
       || target.endsWith('.m3u8');
 
-    // === Playlist m3u8: rewrite relative URLs jadi absolute + route via proxy ===
     if (isPlaylist) {
       const text = await upstream.text();
       const baseUrl = new URL(target);
@@ -39,19 +33,15 @@ export default async function handler(req) {
         .map(line => {
           const trimmed = line.trim();
 
-          // Komentar / directive
           if (trimmed.startsWith('#')) {
-            // Rewrite URI="..." di dalam tag (key, audio, subtitle)
             return trimmed.replace(/URI="([^"]+)"/g, (_, uri) => {
               const abs = new URL(uri, baseUrl).toString();
               return `URI="/api/hls?url=${encodeURIComponent(abs)}${referer ? `&ref=${encodeURIComponent(referer)}` : ''}"`;
             });
           }
 
-          // Baris kosong
           if (!trimmed) return line;
 
-          // URL segmen / sub-playlist → absolute + proxy
           const abs = new URL(trimmed, baseUrl).toString();
           return `/api/hls?url=${encodeURIComponent(abs)}${referer ? `&ref=${encodeURIComponent(referer)}` : ''}`;
         })
@@ -67,7 +57,6 @@ export default async function handler(req) {
       });
     }
 
-    // === Segmen .ts / .m4s / key → stream langsung ===
     return new Response(upstream.body, {
       status: 200,
       headers: {
