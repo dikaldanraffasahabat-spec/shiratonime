@@ -3,7 +3,6 @@ export const config = { runtime: 'edge' };
 const WAJIK_API_URL = 'https://wajik-anime-api-production-8d07.up.railway.app';
 const PROVIDER = 'oploverz';
 const REFERER = 'https://oploverz.am/';
-
 const DEMO_STREAM = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
 
 export default async function handler(req) {
@@ -36,24 +35,9 @@ export default async function handler(req) {
     if (!detailRes.ok) throw new Error(`detail ${detailRes.status}`);
     const detailData = await detailRes.json();
     const episodeList = detailData?.data?.episodeList || [];
-    if (!episodeList.length) throw new Error('no episodes');
+    if (!episodeList.length) throw new Error(`no episodes for slug: ${slug}`);
 
-    const epStr = String(ep);
-    const epPadded = String(ep).padStart(2, '0');
-    let targetEp = episodeList.find(e =>
-      String(e.episode).trim() === epStr ||
-      String(e.episode).trim() === epPadded
-    );
-
-    if (!targetEp) {
-      const firstEpNum = parseInt(episodeList[0]?.episode);
-      const lastEpNum = parseInt(episodeList[episodeList.length - 1]?.episode);
-      if (!isNaN(firstEpNum) && !isNaN(lastEpNum) && firstEpNum > lastEpNum) {
-        targetEp = episodeList[episodeList.length - ep];
-      } else {
-        targetEp = episodeList[ep - 1];
-      }
-    }
+    const targetEp = findEpisode(episodeList, ep);
     if (!targetEp?.href) throw new Error('episode not found');
 
     const epSlug = targetEp.href.replace(/\/$/, '').split('/').pop();
@@ -90,19 +74,69 @@ export default async function handler(req) {
   }
 }
 
+// ==================================================
+// Pilih hasil search terbaik — versi FIX
+// ==================================================
 function pickBestMatch(list, query) {
   const q = query.toLowerCase().trim();
+
+  // 1. EXACT match judul
   const exact = list.find(a => a.title.toLowerCase().trim() === q);
   if (exact) return exact;
 
-  const excluded = /(movie|ova|special|live\s*action|recap|heroines|smartphone|edited)/i;
-  const cleanMatches = list.filter(a => !excluded.test(a.title));
-  if (cleanMatches.length) {
-    const startsWith = cleanMatches.find(a => a.title.toLowerCase().startsWith(q));
-    if (startsWith) return startsWith;
-    return cleanMatches[0];
+  // 2. Buang hasil yang jelas bukan serial utama
+  //    Pattern: Heroines, Live Action, Movie, OVA, Special, Recap, Smartphone, Edited, Season X
+  const excluded = /(heroines|live\s*action|movie|ova|special|recap|smartphone|edited|season\s*\d+)/i;
+  const candidates = list.filter(a => !excluded.test(a.title));
+  if (!candidates.length) return list[0];
+
+  // 3. Cari yang slug-nya PERSIS sama dengan query (paling reliable)
+  //    contoh: query "one piece" → slug "one-piece"
+  const slugTarget = q.replace(/\s+/g, '-');
+  const slugExact = candidates.find(a => a.slug === slugTarget);
+  if (slugExact) return slugExact;
+
+  // 4. Cari yang judulnya mulai dengan query DAN tanpa tambahan apapun
+  const startsExact = candidates.find(a =>
+    a.title.toLowerCase().trim() === q ||
+    a.title.toLowerCase().trim().replace(/\s+/g, ' ') === q
+  );
+  if (startsExact) return startsExact;
+
+  // 5. Terakhir: yang judulnya startsWith query (dari candidates)
+  const startsWith = candidates.find(a =>
+    a.title.toLowerCase().startsWith(q)
+  );
+  if (startsWith) return startsWith;
+
+  return candidates[0];
+}
+
+// ==================================================
+// Cari episode yang cocok
+// ==================================================
+function findEpisode(episodeList, ep) {
+  const epStr = String(ep);
+  const epPadded = String(ep).padStart(2, '0');
+
+  // Coba match exact dulu
+  let found = episodeList.find(e => {
+    const num = String(e.episode).trim();
+    return num === epStr || num === epPadded;
+  });
+  if (found) return found;
+
+  // Coba match numeric
+  found = episodeList.find(e => parseInt(e.episode) === ep);
+  if (found) return found;
+
+  // Fallback: index-based (asumsi descending = terbaru dulu)
+  const firstNum = parseInt(episodeList[0]?.episode);
+  const lastNum = parseInt(episodeList[episodeList.length - 1]?.episode);
+  if (!isNaN(firstNum) && !isNaN(lastNum) && firstNum > lastNum) {
+    return episodeList[episodeList.length - ep];
   }
-  return list[0];
+  return episodeList[ep - 1];
 }
 
 async function fetchTimeout(url, ms, extraHeaders = {}) {
