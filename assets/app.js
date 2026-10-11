@@ -711,4 +711,92 @@ function renderWatchReco() {
         </div>
         <div class="reco-info">
           <h4>${escapeHtml(a.title)}</h4>
-          <small>${escapeHtml(a.type
+          <small>${escapeHtml(a.type)}</small>
+        </div>
+      </div>
+    `).join('');
+  }
+  lucide.createIcons();
+}
+
+function switchWT(btn, panelId) {
+  document.querySelectorAll('.wt-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.wt-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(panelId).classList.add('active');
+}
+
+function toggleAct(el) {
+  el.classList.toggle('on');
+  lucide.createIcons();
+}
+
+function prevEpisode() {
+  if (state.currentEpisode > 1 && state.currentAnime?.malId) {
+    openWatch(state.currentAnime.malId, state.currentEpisode - 1);
+  }
+}
+
+function nextEpisode() {
+  if (state.currentAnime?.malId) {
+    openWatch(state.currentAnime.malId, state.currentEpisode + 1);
+  }
+}
+
+// ==================================================
+// MODAL
+// ==================================================
+function openModal(title, desc) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalDescription').textContent = desc;
+  document.getElementById('detailModal').classList.add('show');
+  lucide.createIcons();
+}
+
+function closeModal() {
+  document.getElementById('detailModal').classList.remove('show');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
+
+// ==================================================
+// INIT
+// ==================================================
+document.addEventListener('DOMContentLoaded', () => {
+  loadHistory();
+  renderHome();
+  renderComments();
+  lucide.createIcons();
+
+  document.getElementById('heroWatchBtn')?.addEventListener('click', () => {
+    if (state.currentAnime?.malId) openWatch(state.currentAnime.malId, 1);
+  });
+  document.getElementById('heroInfoBtn')?.addEventListener('click', () => {
+    if (state.currentAnime?.malId) openInfo(state.currentAnime.malId);
+  });
+
+  document.getElementById('watchInfoBtn')?.addEventListener('click', () => {
+    if (state.currentAnime?.malId) openInfo(state.currentAnime.malId);
+  });
+
+  if (window.innerWidth <= 390 && searchBox) {
+    searchBox.addEventListener('click', () => searchBox.classList.add('expanded'));
+    document.addEventListener('click', e => {
+      if (!searchBox.contains(e.target)) searchBox.classList.remove('expanded');
+    });
+  }
+});
+
+window.switchPage = switchPage;
+window.openInfo = openInfo;
+window.openWatch = openWatch;
+window.openModal = openModal;
+window.closeModal = closeModal;
+window.pickLetter = pickLetter;
+window.switchWT = switchWT;
+window.toggleAct = toggleAct;
+window.addComment = addComment;
+window.prevEpisode = prevEpisode;
+window.nextEpisode = nextEpisode;
