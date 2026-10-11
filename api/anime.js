@@ -1,69 +1,67 @@
-export const config = { runtime: 'edge' };
-
 const JIKAN = 'https://api.jikan.moe/v4';
 
-export default async function handler(req) {
-  const { searchParams } = new URL(req.url);
-  const mode = searchParams.get('mode') || 'search';
-  const q    = searchParams.get('q');
-  const id   = searchParams.get('id');
-  const page = searchParams.get('page') || '1';
-  const limit = searchParams.get('limit') || '20';
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
 
-  let url = '';
-  switch (mode) {
-    case 'search':
-      if (!q) return json({ error: 'missing q' }, 400);
-      url = `${JIKAN}/anime?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}&sfw=true`;
-      break;
-    case 'top':
-      url = `${JIKAN}/top/anime?page=${page}&limit=${limit}`;
-      break;
-    case 'seasonal':
-      url = `${JIKAN}/seasons/now?page=${page}&limit=${limit}`;
-      break;
-    case 'detail':
-      if (!id) return json({ error: 'missing id' }, 400);
-      url = `${JIKAN}/anime/${id}/full`;
-      break;
-    case 'episodes':
-      if (!id) return json({ error: 'missing id' }, 400);
-      url = `${JIKAN}/anime/${id}/episodes?page=${page}`;
-      break;
-    case 'characters':
-      if (!id) return json({ error: 'missing id' }, 400);
-      url = `${JIKAN}/anime/${id}/characters`;
-      break;
-    case 'recommendations':
-      if (!id) return json({ error: 'missing id' }, 400);
-      url = `${JIKAN}/anime/${id}/recommendations`;
-      break;
-    default:
-      return json({ error: 'invalid mode' }, 400);
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const url = new URL(req.url, `https://${req.headers.host}`);
+  const mode = url.searchParams.get('mode') || 'search';
+  const q = url.searchParams.get('q');
+  const id = url.searchParams.get('id');
+  const page = url.searchParams.get('page') || '1';
+  const limit = url.searchParams.get('limit') || '20';
+
+  let jikanUrl = '';
+  if (mode === 'search') {
+    if (!q) return res.status(400).json({ error: 'missing q' });
+    jikanUrl = `${JIKAN}/anime?q=${encodeURIComponent(q)}&page=${page}&limit=${limit}&sfw=true`;
+  } else if (mode === 'top') {
+    jikanUrl = `${JIKAN}/top/anime?page=${page}&limit=${limit}`;
+  } else if (mode === 'seasonal') {
+    jikanUrl = `${JIKAN}/seasons/now?page=${page}&limit=${limit}`;
+  } else if (mode === 'detail') {
+    if (!id) return res.status(400).json({ error: 'missing id' });
+    jikanUrl = `${JIKAN}/anime/${id}/full`;
+  } else if (mode === 'episodes') {
+    if (!id) return res.status(400).json({ error: 'missing id' });
+    jikanUrl = `${JIKAN}/anime/${id}/episodes?page=${page}`;
+  } else if (mode === 'characters') {
+    if (!id) return res.status(400).json({ error: 'missing id' });
+    jikanUrl = `${JIKAN}/anime/${id}/characters`;
+  } else if (mode === 'recommendations') {
+    if (!id) return res.status(400).json({ error: 'missing id' });
+    jikanUrl = `${JIKAN}/anime/${id}/recommendations`;
+  } else {
+    return res.status(400).json({ error: 'invalid mode' });
   }
 
   try {
-    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    const data = await r.json();
-    return new Response(JSON.stringify(data), {
-      status: r.status,
+    const response = await fetch(jikanUrl, {
       headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400'
+        'Accept': 'application/json',
+        'User-Agent': 'Shiratonime/1.0'
       }
     });
-  } catch (err) {
-    return json({ error: 'jikan_fetch_failed', detail: err.message }, 502);
-  }
-}
 
-function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: 'jikan_error',
+        status: response.status,
+        statusText: response.statusText
+      });
     }
-  });
+
+    const data = await response.json();
+    return res.status(200).json(data);
+  } catch (err) {
+    return res.status(500).json({
+      error: 'fetch_failed',
+      detail: err.message
+    });
+  }
 }
