@@ -2,8 +2,11 @@
   "name": "shiratonime",
   "version": "1.0.0",
   "private": true,
+  "description": "Shiratonime — Anime streaming dengan Jikan API + HLS",
   "engines": { "node": ">=18.x" },
-  "dependencies": {
-    "node-fetch": "^3.3.2"
-  }
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {}
 }
