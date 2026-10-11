@@ -1,168 +1,802 @@
-export const config = { runtime: 'edge' };
+// ==================================================
+// Shiratonime — App Logic (AniList API + Oploverz)
+// ==================================================
 
-const WAJIK_API_URL = 'https://wajik-anime-api-production-8d07.up.railway.app';
-const PROVIDER = 'oploverz';
-const REFERER = 'https://oploverz.am/';
-const DEMO_STREAM = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+const API = '/api';
 
-export default async function handler(req) {
-  const { searchParams } = new URL(req.url);
-  const anime  = searchParams.get('anime');
-  const ep     = parseInt(searchParams.get('ep') || '1');
-  const action = searchParams.get('action') || 'watch';
+const state = {
+  currentPage: 'home',
+  searchQuery: '',
+  ongoingList: [],
+  finishedList: [],
+  allList: [],
+  currentAnime: null,
+  currentEpisode: 1,
+  hlsInstance: null,
+  history: []
+};
 
-  if (!anime) return json({ error: 'missing anime' }, 400);
-  if (action !== 'watch') return json({ error: 'invalid action' }, 400);
+let commentsData = [
+  { name: 'Aiko_Chan',  initial: 'A', color: '#ff4d6d', time: '2 jam lalu',  badge: 'VIP',     text: 'Animasi fight scene-nya gila sih! 🔥' },
+  { name: 'KenjiRyuu',  initial: 'K', color: '#7b61ff', time: '5 jam lalu',  badge: '',        text: 'Ending episode ini bener-bener bikin merinding.' },
+  { name: 'SakuraHime', initial: 'S', color: '#52d6a0', time: '1 hari lalu', badge: 'Top Fan', text: 'Moment terbaik sepanjang sejarah anime!' }
+];
+
+// ==================================================
+// FETCH HELPERS
+// ==================================================
+async function apiGet(path, params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `${API}${path}${qs ? '?' + qs : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+function normalizeAnime(a) {
+  if (!a) return {};
+  return {
+    malId: a.id,
+    title: a.title?.romaji || a.title?.english || a.title?.native || 'Untitled',
+    titleEnglish: a.title?.english,
+    titleJapanese: a.title?.native,
+    image: a.coverImage?.extraLarge || a.coverImage?.large || a.coverImage?.medium,
+    imageSmall: a.coverImage?.medium,
+    banner: a.bannerImage,
+    score: a.averageScore ? (a.averageScore / 10).toFixed(1) : 'N/A',
+    episodes: a.episodes,
+    status: a.status === 'RELEASING' ? 'ongoing'
+           : a.status === 'FINISHED' ? 'finished'
+           : 'upcoming',
+    statusText: a.status === 'RELEASING' ? 'Currently Airing'
+              : a.status === 'FINISHED' ? 'Finished Airing'
+              : 'Not yet aired',
+    type: a.format || 'TV',
+    genres: a.genres || [],
+    year: a.seasonYear || '—',
+    synopsis: (a.description || '').replace(/<[^>]*>/g, ''),
+    duration: a.duration ? `${a.duration} min` : '—',
+    studios: a.studios?.nodes?.map(s => s.name) || []
+  };
+}
+
+// ==================================================
+// UTILS
+// ==================================================
+function escapeHtml(str = '') {
+  return String(str).replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[m]));
+}
+
+// ==================================================
+// PAGE SWITCHER
+// ==================================================
+function switchPage(pageId) {
+  state.currentPage = pageId;
+
+  document.querySelectorAll('.nav-item').forEach(n =>
+    n.classList.toggle('active', n.dataset.page === pageId)
+  );
+
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('page-' + pageId);
+  if (target) target.classList.add('active');
+
+  const homeFooter = document.getElementById('homeFooter');
+  if (homeFooter) homeFooter.style.display = pageId === 'home' ? '' : 'none';
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  if (pageId === 'az')      renderAZ();
+  if (pageId === 'history') renderHistory();
+
+  lucide.createIcons();
+}
+
+// ==================================================
+// HOME
+// ==================================================
+async function renderHome() {
+  const ongoingGrid  = document.getElementById('ongoingGrid');
+  const finishedGrid = document.getElementById('finishedGrid');
+  const finishedSection = document.getElementById('finishedSection');
+
+  finishedSection.style.display = '';
+  document.getElementById('ongoingTitle').innerHTML = '<i data-lucide="radio-tower"></i> Ongoing';
+
+  ongoingGrid.innerHTML  = skeletonGrid(10);
+  finishedGrid.innerHTML = skeletonGrid(10);
 
   try {
-    const searchRes = await fetchTimeout(
-      `${WAJIK_API_URL}/${PROVIDER}/search?q=${encodeURIComponent(anime)}`,
-      6000
-    );
-    if (!searchRes.ok) throw new Error(`search ${searchRes.status}`);
-    const searchData = await searchRes.json();
-    const animeList = searchData?.data?.animeList || [];
-    if (!animeList.length) throw new Error('anime not found');
+    const [seasonal, top] = await Promise.all([
+      apiGet('/anime', { mode: 'seasonal', limit: '10' }).catch(() => ({ data: [] })),
+      apiGet('/anime', { mode: 'top', limit: '10' }).catch(() => ({ data: [] }))
+    ]);
 
-    const best = pickBestMatch(animeList, anime);
-    if (!best?.slug) throw new Error('slug missing');
-    const slug = best.slug;
+    state.ongoingList  = (seasonal.data || []).map(normalizeAnime);
+    state.finishedList = (top.data || []).map(normalizeAnime);
+    state.allList      = [...state.ongoingList, ...state.finishedList];
 
-    const detailRes = await fetchTimeout(
-      `${WAJIK_API_URL}/${PROVIDER}/anime/${slug}`,
-      6000
-    );
-    if (!detailRes.ok) throw new Error(`detail ${detailRes.status}`);
-    const detailData = await detailRes.json();
-    const episodeList = detailData?.data?.episodeList || [];
-    if (!episodeList.length) throw new Error(`no episodes for slug: ${slug}`);
+    ongoingGrid.innerHTML  = state.ongoingList.length
+      ? state.ongoingList.map(cardHTML).join('')
+      : errorGrid('Tidak ada anime ongoing');
 
-    const targetEp = findEpisode(episodeList, ep);
-    if (!targetEp?.href) throw new Error('episode not found');
+    finishedGrid.innerHTML = state.finishedList.length
+      ? state.finishedList.map(cardHTML).join('')
+      : errorGrid('Tidak ada anime finished');
 
-    const epSlug = targetEp.href.replace(/\/$/, '').split('/').pop();
+    if (state.finishedList[0]) updateHero(state.finishedList[0]);
 
-    const epRes = await fetchTimeout(
-      `${WAJIK_API_URL}/${PROVIDER}/episode/${epSlug}`,
-      8000
-    );
-    if (!epRes.ok) throw new Error(`episode ${epRes.status}`);
-    const epData = await epRes.json();
-
-    const streamingUrl = epData?.data?.details?.streamingUrl;
-    if (!streamingUrl) throw new Error('streamingUrl missing');
-
-    return json({
-      success: true,
-      type: 'embed',
-      provider: `wajik-${PROVIDER}`,
-      episode: targetEp.episode,
-      episodeTitle: targetEp.title || `Episode ${targetEp.episode}`,
-      embedUrl: streamingUrl,
-      download: epData?.data?.details?.download || []
-    });
-
+    lucide.createIcons();
   } catch (err) {
-    console.error('Stream error:', err.message);
-    return json({
-      success: false,
-      error: 'all_providers_failed',
-      message: err.message,
-      demo: true,
-      defaultSource: DEMO_STREAM
-    });
+    console.error('renderHome failed:', err);
+    ongoingGrid.innerHTML  = errorGrid('Gagal memuat data anime');
+    finishedGrid.innerHTML = '';
+    lucide.createIcons();
   }
 }
 
-// ==================================================
-// Pilih hasil search terbaik — versi FIX
-// ==================================================
-function pickBestMatch(list, query) {
-  const q = query.toLowerCase().trim();
+function skeletonGrid(n) {
+  return Array.from({ length: n }, () =>
+    `<div class="anime-card"><div class="skeleton"></div></div>`
+  ).join('');
+}
 
-  // 1. EXACT match judul
-  const exact = list.find(a => a.title.toLowerCase().trim() === q);
-  if (exact) return exact;
+function errorGrid(msg) {
+  return `<div class="empty-state" style="display:block; grid-column: 1/-1;">
+    <i data-lucide="alert-circle" size="28"></i>${escapeHtml(msg)}
+  </div>`;
+}
 
-  // 2. Buang hasil yang jelas bukan serial utama
-  //    Pattern: Heroines, Live Action, Movie, OVA, Special, Recap, Smartphone, Edited, Season X
-  const excluded = /(heroines|live\s*action|movie|ova|special|recap|smartphone|edited|season\s*\d+)/i;
-  const candidates = list.filter(a => !excluded.test(a.title));
-  if (!candidates.length) return list[0];
+function cardHTML(a) {
+  const statusLabel = a.status === 'ongoing' ? 'ONGOING'
+                    : a.status === 'finished' ? 'FINISHED'
+                    : 'UPCOMING';
+  return `
+    <article class="anime-card" data-title="${escapeHtml(a.title)}" onclick="openInfo(${a.malId})">
+      <div class="poster">
+        <img loading="lazy" src="${a.image}" alt="${escapeHtml(a.title)}" onerror="this.style.display='none'"/>
+        <span class="status ${a.status}">${statusLabel}</span>
+        <span class="poster-rating">
+          <i data-lucide="star"></i> ${a.score}
+        </span>
+      </div>
+      <h3 class="anime-title">${escapeHtml(a.title)}</h3>
+      <p class="anime-subtitle">${escapeHtml(a.genres.slice(0, 2).join(' · ') || a.type)}</p>
+    </article>
+  `;
+}
 
-  // 3. Cari yang slug-nya PERSIS sama dengan query (paling reliable)
-  //    contoh: query "one piece" → slug "one-piece"
-  const slugTarget = q.replace(/\s+/g, '-');
-  const slugExact = candidates.find(a => a.slug === slugTarget);
-  if (slugExact) return slugExact;
+function updateHero(a) {
+  state.currentAnime = a;
+  document.getElementById('heroTitle').textContent  = a.title;
+  document.getElementById('heroRating').textContent = a.score;
+  document.getElementById('heroYear').textContent   = a.year || '—';
+  document.getElementById('heroGenre').textContent  = a.genres.slice(0, 2).join(' · ') || a.type;
+  document.getElementById('heroDesc').textContent   = (a.synopsis || '').slice(0, 180) + (a.synopsis?.length > 180 ? '...' : '');
 
-  // 4. Cari yang judulnya mulai dengan query DAN tanpa tambahan apapun
-  const startsExact = candidates.find(a =>
-    a.title.toLowerCase().trim() === q ||
-    a.title.toLowerCase().trim().replace(/\s+/g, ' ') === q
-  );
-  if (startsExact) return startsExact;
-
-  // 5. Terakhir: yang judulnya startsWith query (dari candidates)
-  const startsWith = candidates.find(a =>
-    a.title.toLowerCase().startsWith(q)
-  );
-  if (startsWith) return startsWith;
-
-  return candidates[0];
+  const bgImg = a.banner || a.image;
+  const featured = document.getElementById('featured');
+  featured.style.backgroundImage = `
+    linear-gradient(90deg, #101019 0%, rgba(16,16,25,.94) 34%, rgba(16,16,25,.45) 68%, rgba(16,16,25,.12) 100%),
+    linear-gradient(0deg, rgba(11,11,16,.8), transparent 60%),
+    url('${bgImg}')`;
+  featured.style.backgroundSize = 'cover';
+  featured.style.backgroundPosition = 'center 30%';
 }
 
 // ==================================================
-// Cari episode yang cocok
+// SEARCH
 // ==================================================
-function findEpisode(episodeList, ep) {
-  const epStr = String(ep);
-  const epPadded = String(ep).padStart(2, '0');
+let searchTimer;
+const searchInput = document.getElementById('searchInput');
+const searchBox   = document.getElementById('searchBox');
 
-  // Coba match exact dulu
-  let found = episodeList.find(e => {
-    const num = String(e.episode).trim();
-    return num === epStr || num === epPadded;
+if (searchInput) {
+  searchInput.addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    const q = e.target.value.trim();
+    state.searchQuery = q.toLowerCase();
+
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-home').classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n =>
+      n.classList.toggle('active', n.dataset.page === 'home')
+    );
+    document.getElementById('homeFooter').style.display = '';
+
+    if (!q) { renderHome(); return; }
+    searchTimer = setTimeout(() => doSearch(q), 400);
   });
-  if (found) return found;
-
-  // Coba match numeric
-  found = episodeList.find(e => parseInt(e.episode) === ep);
-  if (found) return found;
-
-  // Fallback: index-based (asumsi descending = terbaru dulu)
-  const firstNum = parseInt(episodeList[0]?.episode);
-  const lastNum = parseInt(episodeList[episodeList.length - 1]?.episode);
-  if (!isNaN(firstNum) && !isNaN(lastNum) && firstNum > lastNum) {
-    return episodeList[episodeList.length - ep];
-  }
-  return episodeList[ep - 1];
 }
 
-async function fetchTimeout(url, ms, extraHeaders = {}) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
+async function doSearch(q) {
+  const grid = document.getElementById('ongoingGrid');
+  const finishedSection = document.getElementById('finishedSection');
+
+  grid.innerHTML = skeletonGrid(10);
+  finishedSection.style.display = 'none';
+
   try {
-    return await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        ...extraHeaders
+    const data = await apiGet('/anime', { mode: 'search', q, limit: '20' });
+    const results = (data.data || []).map(normalizeAnime);
+
+    grid.innerHTML = results.length
+      ? results.map(cardHTML).join('')
+      : errorGrid(`Tidak ada hasil untuk "${q}"`);
+
+    document.getElementById('ongoingTitle').innerHTML =
+      '<i data-lucide="search"></i> Hasil Pencarian';
+    lucide.createIcons();
+  } catch (err) {
+    grid.innerHTML = errorGrid('Pencarian gagal, coba lagi');
+    lucide.createIcons();
+  }
+}
+
+// ==================================================
+// A-Z
+// ==================================================
+let currentLetter = 'ALL';
+
+async function renderAZ() {
+  const letters = ['ALL', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
+  const bar = document.getElementById('alphaBar');
+
+  bar.innerHTML = letters.map(l => `
+    <button class="alpha-btn ${l === currentLetter ? 'active' : ''}"
+            onclick="pickLetter('${l}')">${l}</button>
+  `).join('');
+
+  const grid = document.getElementById('azGrid');
+  const empty = document.getElementById('azEmpty');
+
+  grid.innerHTML = skeletonGrid(15);
+  empty.style.display = 'none';
+
+  if (state.allList.length === 0) {
+    try {
+      const data = await apiGet('/anime', { mode: 'top', limit: '25' });
+      state.allList = (data.data || []).map(normalizeAnime);
+    } catch {}
+  }
+
+  let data = [...state.allList].sort((a, b) => a.title.localeCompare(b.title));
+  if (currentLetter !== 'ALL') {
+    data = data.filter(a => a.title.toUpperCase().startsWith(currentLetter));
+  }
+
+  if (data.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    grid.innerHTML = data.map(cardHTML).join('');
+    empty.style.display = 'none';
+  }
+
+  document.getElementById('azCount').textContent = `${data.length} anime`;
+  lucide.createIcons();
+}
+
+function pickLetter(l) {
+  currentLetter = l;
+  renderAZ();
+}
+
+// ==================================================
+// RIWAYAT
+// ==================================================
+function loadHistory() {
+  try {
+    state.history = JSON.parse(localStorage.getItem('shiratonime_history') || '[]');
+  } catch { state.history = []; }
+}
+
+function saveToHistory(anime) {
+  const entry = {
+    malId: anime.malId,
+    title: anime.title,
+    image: anime.image,
+    ep: state.currentEpisode,
+    time: new Date().toISOString()
+  };
+  state.history = state.history.filter(h => h.malId !== anime.malId);
+  state.history.unshift(entry);
+  state.history = state.history.slice(0, 20);
+  localStorage.setItem('shiratonime_history', JSON.stringify(state.history));
+}
+
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  const count = document.getElementById('historyCount');
+
+  if (state.history.length === 0) {
+    list.innerHTML = `<div class="empty-state" style="display:block">
+      <i data-lucide="history" size="28"></i>
+      Belum ada riwayat tontonan.
+    </div>`;
+    count.textContent = '';
+    lucide.createIcons();
+    return;
+  }
+
+  list.innerHTML = state.history.map(h => {
+    const timeAgo = formatTimeAgo(new Date(h.time));
+    return `
+      <div class="history-item" onclick="openInfo(${h.malId})">
+        <div class="history-thumb">
+          <img src="${h.image || ''}" alt="${escapeHtml(h.title)}">
+        </div>
+        <div class="history-info">
+          <h4>${escapeHtml(h.title)}</h4>
+          <small>
+            <i data-lucide="monitor-play"></i> Episode ${h.ep}
+            <span style="opacity:0.4">·</span>
+            <i data-lucide="clock"></i> ${timeAgo}
+          </small>
+        </div>
+        <button class="history-play" onclick="event.stopPropagation(); openWatch(${h.malId}, ${h.ep})">
+          <i data-lucide="play"></i>
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  count.textContent = `${state.history.length} terakhir`;
+  lucide.createIcons();
+}
+
+function formatTimeAgo(date) {
+  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 60)     return 'Baru saja';
+  if (diff < 3600)   return `${Math.floor(diff / 60)} menit lalu`;
+  if (diff < 86400)  return `${Math.floor(diff / 3600)} jam lalu`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)} hari lalu`;
+  return date.toLocaleDateString('id-ID');
+}
+
+// ==================================================
+// INFO PAGE
+// ==================================================
+async function openInfo(malId) {
+  if (!malId) return;
+  switchPage('info');
+
+  document.getElementById('infoTitle').textContent = 'Memuat...';
+  document.getElementById('infoSynopsis').textContent = 'Memuat sinopsis...';
+
+  try {
+    const [detail, chars, recos] = await Promise.all([
+      apiGet('/anime', { mode: 'detail', id: malId }),
+      apiGet('/anime', { mode: 'characters', id: malId }).catch(() => ({ data: [] })),
+      apiGet('/anime', { mode: 'recommendations', id: malId }).catch(() => ({ data: [] }))
+    ]);
+
+    const a = normalizeAnime(detail.data);
+    state.currentAnime = a;
+
+    document.getElementById('infoTitle').textContent      = a.title;
+    document.getElementById('infoAlt').textContent        = a.titleEnglish || a.titleJapanese || '';
+    document.getElementById('infoRating').textContent     = a.score;
+    document.getElementById('infoRatingTxt').textContent  = a.score;
+    document.getElementById('infoEps').textContent        = a.episodes ? `${a.episodes} Episode` : '?';
+    document.getElementById('infoYear').textContent       = a.year || '—';
+    document.getElementById('infoDuration').textContent   = a.duration || '—';
+    document.getElementById('infoSynopsis').textContent   = a.synopsis || 'Sinopsis belum tersedia.';
+
+    document.getElementById('infoHero').style.backgroundImage = `url('${a.banner || a.image}')`;
+    document.getElementById('infoPoster').style.backgroundImage = `url('${a.image}')`;
+
+    document.getElementById('infoTags').innerHTML =
+      a.genres.slice(0, 5).map(g =>
+        `<span class="tag-pill accent">${escapeHtml(g)}</span>`
+      ).join('') + `<span class="tag-pill">${a.type}</span>`;
+
+    document.getElementById('infoDetailJp').textContent       = a.titleJapanese || '—';
+    document.getElementById('infoDetailStudio').textContent   = a.studios[0] || '—';
+    document.getElementById('infoDetailType').textContent     = a.type;
+    document.getElementById('infoDetailStatus').textContent   = a.statusText || '—';
+    document.getElementById('infoDetailStatus').style.color   =
+      a.status === 'ongoing' ? 'var(--green)'
+      : a.status === 'finished' ? 'var(--primary-light)'
+      : 'var(--yellow)';
+    document.getElementById('infoDetailDuration').textContent = a.duration || '—';
+    document.getElementById('infoDetailScore').textContent    = a.score;
+
+    const charData = (chars.data || []).slice(0, 8);
+    document.getElementById('charGrid').innerHTML = charData.length ? charData.map(c => {
+      const img = c.character?.images?.jpg?.image_url || '';
+      const initial = (c.character?.name || '?')[0];
+      return `
+        <div class="char-card">
+          <div class="char-avatar" style="background-image:url('${img}')">
+            ${img ? '' : escapeHtml(initial)}
+          </div>
+          <div class="char-info">
+            <h4>${escapeHtml(c.character?.name || '?')}</h4>
+            <small>${escapeHtml(c.role || '')}</small>
+          </div>
+        </div>`;
+    }).join('') : `<div class="empty-state" style="display:block; grid-column:1/-1;">
+      <i data-lucide="users" size="28"></i>Data karakter belum tersedia
+    </div>`;
+
+    const recoData = (recos.data || []).slice(0, 6);
+    document.getElementById('infoReco').innerHTML = recoData.length ? recoData.map(r => {
+      const rA = normalizeAnime(r.entry);
+      return `
+        <div class="reco-card" onclick="openInfo(${rA.malId})">
+          <div class="reco-thumb" style="background-image:url('${rA.imageSmall || rA.image}')">
+            <div class="reco-badge"><i data-lucide="star"></i> ${rA.score}</div>
+          </div>
+          <div class="reco-info">
+            <h4>${escapeHtml(rA.title)}</h4>
+            <small>${escapeHtml(rA.type)}</small>
+          </div>
+        </div>`;
+    }).join('') : `<div class="empty-state" style="display:block; grid-column:1/-1;">
+      <i data-lucide="sparkles" size="28"></i>Belum ada rekomendasi
+    </div>`;
+
+    document.getElementById('btnWatch').onclick = () => openWatch(malId, 1);
+
+    lucide.createIcons();
+  } catch (err) {
+    console.error('openInfo error:', err);
+    document.getElementById('infoTitle').textContent = 'Gagal memuat data';
+    document.getElementById('infoSynopsis').textContent = 'Terjadi kesalahan saat memuat info anime.';
+  }
+}
+
+// ==================================================
+// WATCH PAGE
+// ==================================================
+async function openWatch(malId, ep = 1) {
+  if (!malId) return;
+  switchPage('watch');
+  state.currentEpisode = ep;
+
+  if (!state.currentAnime || state.currentAnime.malId !== malId) {
+    try {
+      const detail = await apiGet('/anime', { mode: 'detail', id: malId });
+      state.currentAnime = normalizeAnime(detail.data);
+    } catch {
+      state.currentAnime = { malId, title: `Anime #${malId}`, synopsis: '' };
+    }
+  }
+
+  const title = state.currentAnime.title;
+  document.getElementById('watchTitle').textContent = `${title} — Episode ${ep}`;
+  document.getElementById('watchSynopsis').textContent = state.currentAnime.synopsis || 'Sinopsis belum tersedia.';
+
+  renderEpisodeList(malId, ep);
+  renderComments();
+  renderWatchReco();
+  saveToHistory(state.currentAnime);
+
+  const statusEl = document.getElementById('playerStatus');
+  statusEl.textContent = '🔍 Mencari server streaming...';
+  statusEl.style.background = 'rgba(0,0,0,.7)';
+  statusEl.style.color = '#fff';
+
+  try {
+    const streamRes = await apiGet('/stream', {
+      action: 'watch',
+      anime: title,
+      ep: String(ep)
+    });
+
+    if (streamRes.type === 'embed' && streamRes.embedUrl) {
+      await playEmbed(streamRes.embedUrl, streamRes.episodeTitle);
+      if (streamRes.episodeTitle) {
+        document.getElementById('watchTitle').textContent = `${title} — ${streamRes.episodeTitle}`;
+      }
+    } else {
+      const src = streamRes.defaultSource || streamRes.demo;
+      const isDemo = streamRes.demo || !streamRes.success;
+
+      statusEl.textContent = isDemo
+        ? '⚠️ Provider tidak tersedia — menampilkan demo stream'
+        : `▶ Streaming dari ${streamRes.provider || 'auto'} — Episode ${streamRes.episode || ep}`;
+
+      await playStream(src, streamRes.referer);
+    }
+  } catch (err) {
+    console.error('stream error:', err);
+    statusEl.textContent = '❌ Gagal memuat stream, mencoba demo...';
+    await playStream('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
+  }
+}
+
+async function playEmbed(embedUrl, episodeTitle = '') {
+  const video = document.getElementById('videoPlayer');
+  const statusEl = document.getElementById('playerStatus');
+  const playerBox = video.parentElement;
+
+  if (state.hlsInstance) {
+    state.hlsInstance.destroy();
+    state.hlsInstance = null;
+  }
+
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  video.style.display = 'none';
+
+  const oldIframe = playerBox.querySelector('.embed-iframe');
+  if (oldIframe) oldIframe.remove();
+
+  const iframe = document.createElement('iframe');
+  iframe.className = 'embed-iframe';
+  iframe.src = embedUrl;
+  iframe.setAttribute('allowfullscreen', 'true');
+  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+  iframe.setAttribute('referrerpolicy', 'no-referrer');
+  iframe.style.cssText = `
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 14px;
+    background: #000;
+    z-index: 1;
+  `;
+
+  playerBox.appendChild(iframe);
+
+  if (statusEl) {
+    statusEl.textContent = `▶ Streaming — ${episodeTitle || 'Memuat...'}`;
+    statusEl.style.background = 'rgba(82,214,160,.85)';
+    statusEl.style.color = '#fff';
+    statusEl.style.zIndex = '10';
+  }
+}
+
+async function playStream(m3u8Url, referer = '') {
+  const video = document.getElementById('videoPlayer');
+  const statusEl = document.getElementById('playerStatus');
+  const playerBox = video.parentElement;
+
+  const oldIframe = playerBox.querySelector('.embed-iframe');
+  if (oldIframe) oldIframe.remove();
+
+  video.style.display = '';
+
+  const proxied = `/api/hls?url=${encodeURIComponent(m3u8Url)}${referer ? `&ref=${encodeURIComponent(referer)}` : ''}`;
+
+  if (state.hlsInstance) {
+    state.hlsInstance.destroy();
+    state.hlsInstance = null;
+  }
+
+  if (window.Hls && Hls.isSupported()) {
+    const hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: false,
+      xhrSetup: (xhr) => { xhr.withCredentials = false; }
+    });
+
+    hls.loadSource(proxied);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(() => {});
+      if (statusEl && !statusEl.textContent.includes('demo')) {
+        statusEl.textContent = '✅ Stream siap diputar';
       }
     });
-  } finally {
-    clearTimeout(id);
+
+    hls.on(Hls.Events.ERROR, (_, data) => {
+      console.error('HLS error:', data);
+      if (data.fatal) {
+        if (statusEl) statusEl.textContent = `⚠️ Stream error: ${data.details}`;
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
+          case Hls.ErrorTypes.MEDIA_ERROR:   hls.recoverMediaError(); break;
+          default: hls.destroy();
+        }
+      }
+    });
+
+    state.hlsInstance = hls;
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = proxied;
+    video.play().catch(() => {});
+  } else {
+    if (statusEl) statusEl.textContent = '❌ Browser tidak mendukung HLS';
   }
 }
 
-function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'public, s-maxage=300'
+async function renderEpisodeList(malId, activeEp) {
+  const panel = document.getElementById('episodeList');
+  panel.innerHTML = '<div style="padding:20px;color:var(--muted);">Memuat episode...</div>';
+
+  try {
+    const data = await apiGet('/anime', { mode: 'episodes', id: malId });
+    const eps = (data.data || []).slice(0, 200);
+
+    if (!eps.length) {
+      panel.innerHTML = '<div style="padding:20px;color:var(--muted);">Daftar episode belum tersedia.</div>';
+      document.getElementById('epTotal').textContent = '—';
+      return;
     }
-  });
+
+    document.getElementById('epTotal').textContent = `${eps.length} Episode`;
+
+    panel.innerHTML = eps.map(e => {
+      const epNum = e.mal_id;
+      const isActive = epNum === activeEp;
+      const isWatched = epNum < activeEp;
+      return `
+        <div class="ep-row ${isActive ? 'active' : ''} ${isWatched ? 'watched' : ''}"
+             onclick="openWatch(${malId}, ${epNum})">
+          <div class="ep-num">${isWatched ? '<i data-lucide="check"></i>' : epNum}</div>
+          <div class="ep-meta">
+            <h4>${escapeHtml(e.title || `Episode ${epNum}`)}</h4>
+            <small><i data-lucide="clock"></i> ${e.duration ? Math.round(e.duration / 60) + ' menit' : '—'}</small>
+          </div>
+          <div class="ep-play-icon"><i data-lucide="play-circle"></i></div>
+        </div>`;
+    }).join('');
+
+    const searchEl = document.getElementById('epSearch');
+    searchEl.value = '';
+    searchEl.oninput = (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      document.querySelectorAll('.ep-row').forEach(row => {
+        const txt = row.querySelector('h4').textContent.toLowerCase();
+        row.style.display = txt.includes(q) ? '' : 'none';
+      });
+    };
+
+    lucide.createIcons();
+  } catch {
+    panel.innerHTML = '<div style="padding:20px;color:var(--muted);">Gagal memuat episode.</div>';
+  }
 }
+
+function renderComments() {
+  const list = document.getElementById('commentList');
+  if (!list) return;
+
+  list.innerHTML = commentsData.map(c => `
+    <div class="comment-item">
+      <div class="avatar" style="background: linear-gradient(135deg, ${c.color}, ${c.color}aa);">${c.initial}</div>
+      <div class="comment-body">
+        <div class="comment-head">
+          <strong>${escapeHtml(c.name)}</strong>
+          ${c.badge ? `<span class="cmt-badge">${escapeHtml(c.badge)}</span>` : ''}
+          <small><i data-lucide="clock"></i> ${escapeHtml(c.time)}</small>
+        </div>
+        <p>${escapeHtml(c.text)}</p>
+        <div class="comment-acts">
+          <button onclick="alert('Like (Demo)')"><i data-lucide="thumbs-up"></i> Suka</button>
+          <button onclick="alert('Balas (Demo)')"><i data-lucide="reply"></i> Balas</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  lucide.createIcons();
+}
+
+function addComment() {
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  commentsData.unshift({
+    name: 'Shiro', initial: 'S', color: '#9b72ff',
+    time: 'Baru saja', badge: 'Kamu', text
+  });
+  input.value = '';
+  renderComments();
+}
+
+function renderWatchReco() {
+  const others = state.allList.filter(a => a.malId !== state.currentAnime?.malId).slice(0, 6);
+  const grid = document.getElementById('watchReco');
+  if (!grid) return;
+
+  if (others.length === 0) {
+    grid.innerHTML = `<div class="empty-state" style="display:block">
+      <i data-lucide="sparkles" size="28"></i>Belum ada rekomendasi
+    </div>`;
+  } else {
+    grid.innerHTML = others.map(a => `
+      <div class="reco-card" onclick="openInfo(${a.malId})">
+        <div class="reco-thumb" style="background-image: url('${a.imageSmall || a.image}')">
+          <div class="reco-badge"><i data-lucide="star"></i> ${a.score}</div>
+        </div>
+        <div class="reco-info">
+          <h4>${escapeHtml(a.title)}</h4>
+          <small>${escapeHtml(a.type)}</small>
+        </div>
+      </div>
+    `).join('');
+  }
+  lucide.createIcons();
+}
+
+function switchWT(btn, panelId) {
+  document.querySelectorAll('.wt-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.wt-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(panelId).classList.add('active');
+}
+
+function toggleAct(el) {
+  el.classList.toggle('on');
+  lucide.createIcons();
+}
+
+function prevEpisode() {
+  if (state.currentEpisode > 1 && state.currentAnime?.malId) {
+    openWatch(state.currentAnime.malId, state.currentEpisode - 1);
+  }
+}
+
+function nextEpisode() {
+  if (state.currentAnime?.malId) {
+    openWatch(state.currentAnime.malId, state.currentEpisode + 1);
+  }
+}
+
+// ==================================================
+// MODAL
+// ==================================================
+function openModal(title, desc) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalDescription').textContent = desc;
+  document.getElementById('detailModal').classList.add('show');
+  lucide.createIcons();
+}
+
+function closeModal() {
+  document.getElementById('detailModal').classList.remove('show');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
+
+// ==================================================
+// INIT
+// ==================================================
+document.addEventListener('DOMContentLoaded', () => {
+  loadHistory();
+  renderHome();
+  renderComments();
+  lucide.createIcons();
+
+  document.getElementById('heroWatchBtn')?.addEventListener('click', () => {
+    if (state.currentAnime?.malId) openWatch(state.currentAnime.malId, 1);
+  });
+  document.getElementById('heroInfoBtn')?.addEventListener('click', () => {
+    if (state.currentAnime?.malId) openInfo(state.currentAnime.malId);
+  });
+
+  document.getElementById('watchInfoBtn')?.addEventListener('click', () => {
+    if (state.currentAnime?.malId) openInfo(state.currentAnime.malId);
+  });
+
+  if (window.innerWidth <= 390 && searchBox) {
+    searchBox.addEventListener('click', () => searchBox.classList.add('expanded'));
+    document.addEventListener('click', e => {
+      if (!searchBox.contains(e.target)) searchBox.classList.remove('expanded');
+    });
+  }
+});
+
+window.switchPage = switchPage;
+window.openInfo = openInfo;
+window.openWatch = openWatch;
+window.openModal = openModal;
+window.closeModal = closeModal;
+window.pickLetter = pickLetter;
+window.switchWT = switchWT;
+window.toggleAct = toggleAct;
+window.addComment = addComment;
+window.prevEpisode = prevEpisode;
+window.nextEpisode = nextEpisode;
