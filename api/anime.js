@@ -1,4 +1,3 @@
-// api/anime.js
 export const config = { runtime: 'edge' };
 
 const JIKAN = 'https://api.jikan.moe/v4';
@@ -9,7 +8,7 @@ export default async function handler(req) {
   const q    = searchParams.get('q');
   const id   = searchParams.get('id');
   const page = searchParams.get('page') || '1';
-  const limit= searchParams.get('limit') || '20';
+  const limit = searchParams.get('limit') || '20';
 
   let url = '';
   switch (mode) {
@@ -62,6 +61,9 @@ export default async function handler(req) {
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
   });
 }
