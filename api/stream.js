@@ -16,7 +16,6 @@ export default async function handler(req) {
   if (action !== 'watch') return json({ error: 'invalid action' }, 400);
 
   try {
-    // 1. SEARCH
     const searchRes = await fetchTimeout(
       `${WAJIK_API_URL}/${PROVIDER}/search?q=${encodeURIComponent(anime)}`,
       6000
@@ -30,7 +29,6 @@ export default async function handler(req) {
     if (!best?.slug) throw new Error('slug missing');
     const slug = best.slug;
 
-    // 2. DETAIL ANIME
     const detailRes = await fetchTimeout(
       `${WAJIK_API_URL}/${PROVIDER}/anime/${slug}`,
       6000
@@ -40,13 +38,13 @@ export default async function handler(req) {
     const episodeList = detailData?.data?.episodeList || [];
     if (!episodeList.length) throw new Error('no episodes');
 
-    // 3. CARI EPISODE
     const epStr = String(ep);
     const epPadded = String(ep).padStart(2, '0');
     let targetEp = episodeList.find(e =>
       String(e.episode).trim() === epStr ||
       String(e.episode).trim() === epPadded
     );
+
     if (!targetEp) {
       const firstEpNum = parseInt(episodeList[0]?.episode);
       const lastEpNum = parseInt(episodeList[episodeList.length - 1]?.episode);
@@ -60,7 +58,6 @@ export default async function handler(req) {
 
     const epSlug = targetEp.href.replace(/\/$/, '').split('/').pop();
 
-    // 4. EPISODE DETAIL → ambil streamingUrl (embed)
     const epRes = await fetchTimeout(
       `${WAJIK_API_URL}/${PROVIDER}/episode/${epSlug}`,
       8000
@@ -71,12 +68,9 @@ export default async function handler(req) {
     const streamingUrl = epData?.data?.details?.streamingUrl;
     if (!streamingUrl) throw new Error('streamingUrl missing');
 
-    // ==========================================
-    // KIRIM EMBED URL — frontend yang render iframe
-    // ==========================================
     return json({
       success: true,
-      type: 'embed', // ← flag khusus: frontend harus render iframe, bukan video
+      type: 'embed',
       provider: `wajik-${PROVIDER}`,
       episode: targetEp.episode,
       episodeTitle: targetEp.title || `Episode ${targetEp.episode}`,
