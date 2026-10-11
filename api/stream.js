@@ -17,7 +17,7 @@ export default async function handler(req) {
 
   try {
     // ==========================================
-    // 1. SEARCH
+    // 1. SEARCH — cari anime, pilih hasil terbaik
     // ==========================================
     const searchRes = await fetchTimeout(
       `${WAJIK_API_URL}/${PROVIDER}/search?q=${encodeURIComponent(anime)}`,
@@ -28,11 +28,10 @@ export default async function handler(req) {
     const animeList = searchData?.data?.animeList || [];
     if (!animeList.length) throw new Error('anime not found');
 
-    const best = animeList.find(a =>
-      a.title.toLowerCase().includes(anime.toLowerCase())
-    ) || animeList[0];
+    const best = pickBestMatch(animeList, anime);
+    if (!best?.slug) throw new Error('slug missing');
+
     const slug = best.slug;
-    if (!slug) throw new Error('slug missing');
 
     // ==========================================
     // 2. DETAIL ANIME → episode list
@@ -46,16 +45,40 @@ export default async function handler(req) {
     const episodeList = detailData?.data?.episodeList || [];
     if (!episodeList.length) throw new Error('no episodes');
 
-    // Cari episode yang cocok
-    const targetEp = episodeList.find(e =>
-      String(e.episode) === String(ep)
-    ) || episodeList[episodeList.length - ep] || episodeList[0];
+    // ==========================================
+    // 3. CARI EPISODE
+    // ==========================================
+    // Format episode di Oploverz: "1180", "01", "1", "[END]", dll
+    // Kita cari berdasarkan number match
+    const epStr = String(ep);
+    const epPadded = String(ep).padStart(2, '0');
+
+    let targetEp = episodeList.find(e =>
+      String(e.episode).trim() === epStr ||
+      String(e.episode).trim() === epPadded
+    );
+
+    // Fallback: ambil berdasarkan index (kalau list urut dari terbaru)
+    if (!targetEp) {
+      // Cek kalau episodeList urut descending (terbaru dulu)
+      const firstEpNum = parseInt(episodeList[0]?.episode);
+      const lastEpNum = parseInt(episodeList[episodeList.length - 1]?.episode);
+
+      if (!isNaN(firstEpNum) && !isNaN(lastEpNum) && firstEpNum > lastEpNum) {
+        // Descending — episode 1 ada di akhir
+        targetEp = episodeList[episodeList.length - ep];
+      } else {
+        // Ascending — episode 1 ada di awal
+        targetEp = episodeList[ep - 1];
+      }
+    }
+
     if (!targetEp?.href) throw new Error('episode not found');
 
     const epSlug = targetEp.href.replace(/\/$/, '').split('/').pop();
 
     // ==========================================
-    // 3. EPISODE DETAIL → ambil streamingUrl
+    // 4. EPISODE DETAIL → ambil streamingUrl
     // ==========================================
     const epRes = await fetchTimeout(
       `${WAJIK_API_URL}/${PROVIDER}/episode/${epSlug}`,
@@ -68,7 +91,7 @@ export default async function handler(req) {
     if (!streamingUrl) throw new Error('streamingUrl missing');
 
     // ==========================================
-    // 4. EXTRACT .m3u8 dari halaman embed
+    // 5. EXTRACT .m3u8 dari halaman embed
     // ==========================================
     const m3u8Url = await extractM3U8(streamingUrl);
 
@@ -76,8 +99,8 @@ export default async function handler(req) {
       return json({
         success: false,
         error: 'm3u8_not_found',
-        message: 'Tidak bisa extract link video dari embed player.',
-        debug: { streamingUrl },
+        message: 'Embed player tidak kasih link langsung. Butuh decrypter.',
+        debug: { streamingUrl, epSlug },
         demo: true,
         defaultSource: DEMO_STREAM,
         sources: [{ quality: 'demo', url: DEMO_STREAM, isM3U8: true }]
@@ -108,7 +131,39 @@ export default async function handler(req) {
 }
 
 // ==================================================
-// Extract .m3u8 dari halaman embed (upbolt, dll)
+// Pilih hasil search terbaik
+// Prioritas:
+//   1. Judul exact match (case-insensitive)
+//   2. Judul tanpa suffix (movie/OVA/special)
+//   3. Hasil pertama
+// ==================================================
+function pickBestMatch(list, query) {
+  const q = query.toLowerCase().trim();
+
+  // 1. Exact match
+  const exact = list.find(a =>
+    a.title.toLowerCase().trim() === q
+  );
+  if (exact) return exact;
+
+  // 2. Match tanpa suffix "TV", "Season X", dll — dan BUKAN movie/OVA/special/live action
+  const excluded = /(movie|ova|special|live\s*action|recap|heroines|smartphone|edited)/i;
+  const cleanMatches = list.filter(a => !excluded.test(a.title));
+  if (cleanMatches.length) {
+    // Cari yang judulnya dimulai dengan query
+    const startsWith = cleanMatches.find(a =>
+      a.title.toLowerCase().startsWith(q)
+    );
+    if (startsWith) return startsWith;
+    return cleanMatches[0];
+  }
+
+  // 3. Fallback
+  return list[0];
+}
+
+// ==================================================
+// Extract .m3u8 dari halaman embed
 // ==================================================
 async function extractM3U8(embedUrl) {
   try {
@@ -121,7 +176,6 @@ async function extractM3U8(embedUrl) {
 
     const html = await res.text();
 
-    // Cari pola umum .m3u8 di HTML/script
     const patterns = [
       /https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/g,
       /["'](\/\/[^\s"']+\.m3u8[^\s"']*)["']/g,
@@ -135,13 +189,10 @@ async function extractM3U8(embedUrl) {
       for (const match of matches) {
         let url = match[1] || match[0];
         url = url.replace(/\\\//g, '/').replace(/^\/\//, 'https://');
-        if (url.includes('.m3u8')) {
-          return url;
-        }
+        if (url.includes('.m3u8')) return url;
       }
     }
 
-    // Cari di JSON-LD / meta og:video
     const ogVideo = html.match(/property=["']og:video["']\s+content=["']([^"']+)["']/);
     if (ogVideo?.[1]?.includes('.m3u8')) return ogVideo[1];
 
