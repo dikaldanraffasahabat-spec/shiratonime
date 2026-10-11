@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Shiratonime — Nonton anime gratis, kualitas HD, subtitle Indonesia." />
+  <meta name="theme-color" content="#0b0b10" />
+  <title>Shiratonime - Anime Streaming</title>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="header-inner">
+    <div class="logo" onclick="switchPage('home')">
+      Shirato<span>nime</span>
+    </div>
+
+    <label class="search" id="searchBox">
+      <i data-lucide="search" size="18"></i>
+      <input id="searchInput" type="search" placeholder="Cari anime..." aria-label="Cari anime" />
+    </label>
+
+    <button class="profile-button" aria-label="Buka akun" onclick="switchPage('account')">
+      <i data-lucide="user-round"></i>
+    </button>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main class="container">
+
+  <!-- ========== PAGE: HOME ========== -->
+  <section class="page active" id="page-home">
+
+    <section class="hero" id="featured">
+      <div class="hero-content">
+        <div class="eyebrow">
+          <i data-lucide="sparkles"></i>
+          Featured Anime
+        </div>
+        <h1 id="heroTitle">Memuat...</h1>
+        <div class="hero-meta">
+          <span class="rating">
+            <i data-lucide="star" size="15"></i>
+            <span id="heroRating">—</span>
+          </span>
+          <span id="heroYear">—</span>
+          <span id="heroGenre">—</span>
+        </div>
+        <p id="heroDesc">Menyiapkan rekomendasi untukmu...</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" id="heroWatchBtn">
+            <i data-lucide="play" size="17"></i>
+            Tonton Sekarang
+          </button>
+          <button class="btn btn-secondary" id="heroInfoBtn">
+            <i data-lucide="info" size="17"></i>
+            Detail
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="ongoingSection">
+      <div class="section-heading">
+        <h2 class="section-title" id="ongoingTitle">
+          <i data-lucide="radio-tower"></i>
+          Ongoing
+        </h2>
+        <button class="view-all" onclick="switchPage('az')">
+          Lihat semua <i data-lucide="chevron-right" size="15"></i>
+        </button>
+      </div>
+      <div class="anime-grid" id="ongoingGrid"></div>
+      <div class="empty-state" id="ongoingEmpty">
+        <i data-lucide="search-x" size="28"></i>
+        Anime tidak ditemukan.
+      </div>
+    </section>
+
+    <section class="section" id="finishedSection">
+      <div class="section-heading">
+        <h2 class="section-title" id="finishedTitle">
+          <i data-lucide="check-circle-2"></i>
+          Finished
+        </h2>
+        <button class="view-all" onclick="switchPage('az')">
+          Lihat semua <i data-lucide="chevron-right" size="15"></i>
+        </button>
+      </div>
+      <div class="anime-grid" id="finishedGrid"></div>
+      <div class="empty-state" id="finishedEmpty">
+        <i data-lucide="search-x" size="28"></i>
+        Anime tidak ditemukan.
+      </div>
+    </section>
+  </section>
+
+  <!-- ========== PAGE: A-Z ========== -->
+  <section class="page" id="page-az">
+    <div class="section-heading" style="margin-top: 28px;">
+      <h2 class="section-title">
+        <i data-lucide="list-filter"></i>
+        Semua Anime A-Z
+      </h2>
+      <span class="section-count" id="azCount"></span>
+    </div>
+    <div class="alpha-bar" id="alphaBar"></div>
+    <div class="anime-grid" id="azGrid"></div>
+    <div class="empty-state" id="azEmpty" style="display:none">
+      <i data-lucide="search-x" size="28"></i>
+      Anime tidak ditemukan.
+    </div>
+  </section>
+
+  <!-- ========== PAGE: RIWAYAT ========== -->
+  <section class="page" id="page-history">
+    <div class="section-heading" style="margin-top: 28px;">
+      <h2 class="section-title">
+        <i data-lucide="history"></i>
+        Riwayat Tontonan
+      </h2>
+      <span class="section-count" id="historyCount"></span>
+    </div>
+    <div class="history-list" id="historyList"></div>
+  </section>
+
+  <!-- ========== PAGE: AKUN ========== -->
+  <section class="page" id="page-account">
+    <div style="margin-top: 28px;">
+      <div class="profile-card">
+        <div class="profile-avatar">S</div>
+        <div class="profile-info">
+          <h2>Shiro</h2>
+          <p>shiro@shiratonime.id · Member sejak 2023</p>
+          <div class="profile-stats">
+            <div class="stat"><h4>24</h4><small>Ditonton</small></div>
+            <div class="stat"><h4>8</h4><small>My List</small></div>
+            <div class="stat"><h4>5</h4><small>Favorit</small></div>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="alert('Edit profil (Demo)')">
+          <i data-lucide="pencil" size="16"></i> Edit Profil
+        </button>
+      </div>
+
+      <div class="section-heading">
+        <h2 class="section-title" style="font-size: 18px;">
+          <i data-lucide="settings"></i>
+          Pengaturan Akun
+        </h2>
+      </div>
+
+      <div class="settings-list">
+        <div class="setting-item" onclick="alert('Notifikasi (Demo)')">
+          <div class="icon-wrap"><i data-lucide="bell"></i></div>
+          Notifikasi <i data-lucide="chevron-right" class="chev"></i>
+        </div>
+        <div class="setting-item" onclick="alert('Preferensi Tontonan (Demo)')">
+          <div class="icon-wrap"><i data-lucide="sliders-horizontal"></i></div>
+          Preferensi Tontonan <i data-lucide="chevron-right" class="chev"></i>
+        </div>
+        <div class="setting-item" onclick="alert('Kualitas Video (Demo)')">
+          <div class="icon-wrap"><i data-lucide="monitor"></i></div>
+          Kualitas Video <i data-lucide="chevron-right" class="chev"></i>
+        </div>
+        <div class="setting-item" onclick="alert('Bahasa & Subtitle (Demo)')">
+          <div class="icon-wrap"><i data-lucide="languages"></i></div>
+          Bahasa & Subtitle <i data-lucide="chevron-right" class="chev"></i>
+        </div>
+        <div class="setting-item" onclick="alert('Logout (Demo)')" style="color: #e63946;">
+          <div class="icon-wrap" style="background: rgba(230,57,70,.2); color: #e63946;">
+            <i data-lucide="log-out"></i>
+          </div>
+          Keluar <i data-lucide="chevron-right" class="chev"></i>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== PAGE: WATCH ========== -->
+  <section class="page" id="page-watch">
+    <div style="margin-top: 22px;">
+      <button class="back-btn" onclick="switchPage('home')">
+        <i data-lucide="arrow-left"></i> Kembali
+      </button>
+
+      <div class="watch-wrap">
+        <div>
+          <div class="player-box">
+            <video id="videoPlayer" playsinline controls
+                   style="width:100%; height:100%; background:#000; border-radius:14px; display:block;"></video>
+            <div id="playerStatus" class="player-status">Menyiapkan player...</div>
+          </div>
+
+          <div class="watch-title">
+            <div>
+              <h1 id="watchTitle">Memuat...</h1>
+              <div class="watch-meta">
+                <span><i data-lucide="eye"></i> 245K views</span>
+                <span><i data-lucide="calendar"></i> 2 hari lalu</span>
+                <span><i data-lucide="message-circle"></i> 128 komentar</span>
+              </div>
+            </div>
+            <div class="watch-actions">
+              <button class="act-btn on" onclick="toggleAct(this)">
+                <i data-lucide="thumbs-up"></i> 2.4K
+              </button>
+              <button class="act-btn" onclick="toggleAct(this)">
+                <i data-lucide="thumbs-down"></i>
+              </button>
+              <button class="act-btn" onclick="toggleAct(this)">
+                <i data-lucide="bookmark"></i> Simpan
+              </button>
+              <button class="act-btn" onclick="alert('Link dicopy')">
+                <i data-lucide="share-2"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="watch-info-bar">
+            <div class="nav-ep-btns">
+              <button class="ep-nav-btn" onclick="prevEpisode()">
+                <i data-lucide="skip-back"></i> Sebelumnya
+              </button>
+              <button class="ep-nav-btn" onclick="nextEpisode()">
+                Selanjutnya <i data-lucide="skip-forward"></i>
+              </button>
+            </div>
+            <button class="btn btn-primary btn-sm" id="watchInfoBtn">
+              <i data-lucide="info" size="15"></i> Info Anime
+            </button>
+          </div>
+
+          <div class="watch-tabs">
+            <button class="wt-btn active" onclick="switchWT(this, 'wt-desc')">
+              <i data-lucide="file-text"></i> Sinopsis
+            </button>
+            <button class="wt-btn" onclick="switchWT(this, 'wt-comment')">
+              <i data-lucide="message-circle"></i> Komentar
+            </button>
+            <button class="wt-btn" onclick="switchWT(this, 'wt-reco')">
+              <i data-lucide="sparkles"></i> Rekomendasi
+            </button>
+          </div>
+
+          <div class="wt-panel active" id="wt-desc">
+            <div class="synopsis" id="watchSynopsis">Memuat sinopsis...</div>
+          </div>
+
+          <div class="wt-panel" id="wt-comment">
+            <div class="comment-form">
+              <div class="avatar">S</div>
+              <div class="comment-input-wrap">
+                <textarea id="commentInput" placeholder="Tulis komentar kamu..."></textarea>
+                <button class="btn btn-primary" onclick="addComment()">
+                  <i data-lucide="send" size="15"></i> Kirim
+                </button>
+              </div>
+            </div>
+            <div class="comment-list" id="commentList"></div>
+          </div>
+
+          <div class="wt-panel" id="wt-reco">
+            <div class="reco-grid" id="watchReco"></div>
+          </div>
+        </div>
+
+        <aside>
+          <div class="episode-panel">
+            <div class="episode-panel-head">
+              <h3><i data-lucide="list-video"></i> Daftar Episode</h3>
+              <small id="epTotal">—</small>
+            </div>
+            <div class="search-ep">
+              <i data-lucide="search"></i>
+              <input type="text" id="epSearch" placeholder="Cari episode...">
+            </div>
+            <div class="episode-list" id="episodeList"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== PAGE: INFO ========== -->
+  <section class="page" id="page-info">
+    <div style="margin-top: 22px;">
+      <button class="back-btn" onclick="switchPage('home')">
+        <i data-lucide="arrow-left"></i> Kembali
+      </button>
+
+      <div class="info-hero" id="infoHero">
+        <div class="info-poster" id="infoPoster">
+          <div class="poster-badge">
+            <i data-lucide="star"></i>
+            <span id="infoRating">—</span>
+          </div>
+        </div>
+
+        <div class="info-content">
+          <h1 id="infoTitle">Memuat...</h1>
+          <div class="alt-title" id="infoAlt"></div>
+          <div class="info-tags" id="infoTags"></div>
+
+          <div class="info-stats">
+            <span class="rating">
+              <i data-lucide="star"></i>
+              <span id="infoRatingTxt">—</span> / 10
+            </span>
+            <span><i data-lucide="monitor-play"></i> <span id="infoEps">—</span></span>
+            <span><i data-lucide="calendar"></i> <span id="infoYear">—</span></span>
+            <span><i data-lucide="clock"></i> <span id="infoDuration">—</span></span>
+          </div>
+
+          <div class="info-actions">
+            <button class="btn btn-primary" id="btnWatch">
+              <i data-lucide="play" size="17"></i> Tonton Episode 1
+            </button>
+            <button class="btn btn-secondary" onclick="toggleAct(this)">
+              <i data-lucide="bookmark" size="16"></i> My List
+            </button>
+            <button class="btn btn-secondary" onclick="alert('Link dicopy')">
+              <i data-lucide="share-2" size="16"></i> Bagikan
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-grid">
+        <div class="info-detail">
+          <h3><i data-lucide="file-text"></i> Sinopsis</h3>
+          <p class="info-synopsis" id="infoSynopsis">Memuat sinopsis...</p>
+        </div>
+
+        <div class="info-detail">
+          <h3><i data-lucide="info"></i> Detail</h3>
+          <div class="detail-row">
+            <span class="lbl">Judul Jepang</span>
+            <span class="val" id="infoDetailJp">—</span>
+          </div>
+          <div class="detail-row">
+            <span class="lbl">Studio</span>
+            <span class="val" id="infoDetailStudio">—</span>
+          </div>
+          <div class="detail-row">
+            <span class="lbl">Tipe</span>
+            <span class="val" id="infoDetailType">—</span>
+          </div>
+          <div class="detail-row">
+            <span class="lbl">Status</span>
+            <span class="val" id="infoDetailStatus">—</span>
+          </div>
+          <div class="detail-row">
+            <span class="lbl">Durasi</span>
+            <span class="val" id="infoDetailDuration">—</span>
+          </div>
+          <div class="detail-row">
+            <span class="lbl">Skor MAL</span>
+            <span class="val" id="infoDetailScore">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-heading">
+        <h2 class="section-title" style="font-size: 18px;">
+          <i data-lucide="users"></i>
+          Karakter Utama
+        </h2>
+      </div>
+      <div class="char-grid" id="charGrid"></div>
+
+      <div class="section-heading" style="margin-top: 30px;">
+        <h2 class="section-title" style="font-size: 18px;">
+          <i data-lucide="sparkles"></i>
+          Rekomendasi Serupa
+        </h2>
+      </div>
+      <div class="reco-grid" id="infoReco"></div>
+
+      <footer>Shiratonime © 2026 · Anime discovery made simple.</footer>
+    </div>
+  </section>
+
+  <footer id="homeFooter">Shiratonime © 2026 · Anime discovery made simple.</footer>
+</main>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav" aria-label="Navigasi utama">
+  <div class="nav-inner">
+    <button class="nav-item active" data-page="home" onclick="switchPage('home')">
+      <i data-lucide="house"></i>
+      <span>Beranda</span>
+    </button>
+    <button class="nav-item" data-page="az" onclick="switchPage('az')">
+      <i data-lucide="list-filter"></i>
+      <span>A-Z</span>
+    </button>
+    <button class="nav-item" data-page="history" onclick="switchPage('history')">
+      <i data-lucide="history"></i>
+      <span>Riwayat</span>
+    </button>
+    <button class="nav-item" data-page="account" onclick="switchPage('account')">
+      <i data-lucide="user-round"></i>
+      <span>Akun</span>
+    </button>
+  </div>
+</nav>
+
+<!-- MODAL -->
+<div class="modal" id="detailModal" role="dialog" aria-modal="true"
+     onclick="if(event.target === this) closeModal()">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal()">
+      <i data-lucide="x"></i>
+    </button>
+    <h2 id="modalTitle">Detail Anime</h2>
+    <p id="modalDescription"></p>
+    <button class="btn btn-primary" onclick="closeModal()">
+      <i data-lucide="check" size="16"></i> Mengerti
+    </button>
+  </div>
+</div>
+
+<script src="assets/app.js"></script>
+
+</body>
+          </html>
